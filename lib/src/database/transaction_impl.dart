@@ -365,10 +365,23 @@ class SQLiteTransaction implements Transaction {
 
     final results = await _txn.rawQuery(query, arguments);
 
+    // Optimize: Batch fetch all labels and properties to avoid N+1 queries
+    if (results.isEmpty) {
+      return;
+    }
+
+    final vertexIds = results.map((row) => row['id']! as int).toList();
+
+    // Batch fetch all labels
+    final labelsMap = await _getBatchVertexLabels(vertexIds);
+
+    // Batch fetch all properties
+    final propertiesMap = await _getBatchVertexProperties(vertexIds);
+
     for (final row in results) {
       final vertexId = row['id']! as int;
-      final labels = await _getVertexLabels(vertexId);
-      final properties = await _getVertexProperties(vertexId);
+      final labels = labelsMap[vertexId] ?? <String>{};
+      final properties = propertiesMap[vertexId] ?? <String, dynamic>{};
 
       yield Vertex(
         id: vertexId,
@@ -424,10 +437,23 @@ class SQLiteTransaction implements Transaction {
 
     final results = await _txn.rawQuery(query, arguments);
 
+    // Optimize: Batch fetch all labels and properties to avoid N+1 queries
+    if (results.isEmpty) {
+      return;
+    }
+
+    final edgeIds = results.map((row) => row['id']! as int).toList();
+
+    // Batch fetch all labels
+    final labelsMap = await _getBatchEdgeLabels(edgeIds);
+
+    // Batch fetch all properties
+    final propertiesMap = await _getBatchEdgeProperties(edgeIds);
+
     for (final row in results) {
       final edgeId = row['id']! as int;
-      final labels = await _getEdgeLabels(edgeId);
-      final properties = await _getEdgeProperties(edgeId);
+      final labels = labelsMap[edgeId] ?? <String>{};
+      final properties = propertiesMap[edgeId] ?? <String, dynamic>{};
 
       yield Edge(
         id: edgeId,
@@ -457,6 +483,55 @@ class SQLiteTransaction implements Transaction {
 
   Future<Set<String>> _getEdgeLabels(int edgeId) async {
     return _getLabels('edge_labels', 'edge_id', edgeId);
+  }
+
+  /// Batch fetch labels for multiple vertices to avoid N+1 queries
+  Future<Map<int, Set<String>>> _getBatchVertexLabels(
+      List<int> vertexIds) async {
+    if (vertexIds.isEmpty) {
+      return {};
+    }
+
+    final placeholders = List.filled(vertexIds.length, '?').join(', ');
+    final results = await _txn.query(
+      'vertex_labels',
+      columns: ['vertex_id', 'label'],
+      where: 'vertex_id IN ($placeholders)',
+      whereArgs: vertexIds,
+    );
+
+    final labelsMap = <int, Set<String>>{};
+    for (final row in results) {
+      final vertexId = row['vertex_id']! as int;
+      final label = row['label']! as String;
+      labelsMap.putIfAbsent(vertexId, () => <String>{}).add(label);
+    }
+
+    return labelsMap;
+  }
+
+  /// Batch fetch labels for multiple edges to avoid N+1 queries
+  Future<Map<int, Set<String>>> _getBatchEdgeLabels(List<int> edgeIds) async {
+    if (edgeIds.isEmpty) {
+      return {};
+    }
+
+    final placeholders = List.filled(edgeIds.length, '?').join(', ');
+    final results = await _txn.query(
+      'edge_labels',
+      columns: ['edge_id', 'label'],
+      where: 'edge_id IN ($placeholders)',
+      whereArgs: edgeIds,
+    );
+
+    final labelsMap = <int, Set<String>>{};
+    for (final row in results) {
+      final edgeId = row['edge_id']! as int;
+      final label = row['label']! as String;
+      labelsMap.putIfAbsent(edgeId, () => <String>{}).add(label);
+    }
+
+    return labelsMap;
   }
 
   Future<Map<String, dynamic>> _getProperties(
@@ -489,6 +564,66 @@ class SQLiteTransaction implements Transaction {
 
   Future<Map<String, dynamic>> _getEdgeProperties(int edgeId) async {
     return _getProperties('edge_properties', 'edge_id', edgeId);
+  }
+
+  /// Batch fetch properties for multiple vertices to avoid N+1 queries
+  Future<Map<int, Map<String, dynamic>>> _getBatchVertexProperties(
+    List<int> vertexIds,
+  ) async {
+    if (vertexIds.isEmpty) {
+      return {};
+    }
+
+    final placeholders = List.filled(vertexIds.length, '?').join(', ');
+    final results = await _txn.query(
+      'vertex_properties',
+      columns: ['vertex_id', 'key', 'value', 'type'],
+      where: 'vertex_id IN ($placeholders)',
+      whereArgs: vertexIds,
+    );
+
+    final propertiesMap = <int, Map<String, dynamic>>{};
+    for (final row in results) {
+      final vertexId = row['vertex_id']! as int;
+      final key = row['key']! as String;
+      final value = row['value'];
+      final type = DatabaseValueType.fromId(row['type']! as int);
+
+      propertiesMap.putIfAbsent(vertexId, () => <String, dynamic>{})[key] =
+          DatabaseValueHelper.fromDatabaseValue(type, value);
+    }
+
+    return propertiesMap;
+  }
+
+  /// Batch fetch properties for multiple edges to avoid N+1 queries
+  Future<Map<int, Map<String, dynamic>>> _getBatchEdgeProperties(
+    List<int> edgeIds,
+  ) async {
+    if (edgeIds.isEmpty) {
+      return {};
+    }
+
+    final placeholders = List.filled(edgeIds.length, '?').join(', ');
+    final results = await _txn.query(
+      'edge_properties',
+      columns: ['edge_id', 'key', 'value', 'type'],
+      where: 'edge_id IN ($placeholders)',
+      whereArgs: edgeIds,
+    );
+
+    final propertiesMap = <int, Map<String, dynamic>>{};
+    for (final row in results) {
+      final edgeId = row['edge_id']! as int;
+      final key = row['key']! as String;
+      final value = row['value'];
+      final type = DatabaseValueType.fromId(row['type']! as int);
+
+      propertiesMap.putIfAbsent(edgeId, () => <String, dynamic>{})[key] =
+          DatabaseValueHelper.fromDatabaseValue(type, value);
+    }
+
+    return propertiesMap;
   }
 
   Future<void> _insertProperties(
