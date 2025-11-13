@@ -81,13 +81,7 @@ class SQLiteTransaction implements Transaction {
           await _txn.query('vertices', where: 'id = ?', whereArgs: [vertexId]);
       if (vertexResult.isEmpty) return null;
 
-      final labelsResult = await _txn.query(
-        'vertex_labels',
-        where: 'vertex_id = ?',
-        whereArgs: [vertexId],
-      );
-      final labels = labelsResult.map((row) => row['label']! as String).toSet();
-
+      final labels = await _getVertexLabels(vertexId);
       final properties = await _getVertexProperties(vertexId);
 
       return Vertex(
