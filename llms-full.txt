@@ -1,0 +1,2305 @@
+# RinneGraph Library Complete Guide (For LLMs)
+
+## Overview
+
+RinneGraph is an embedded graph database library for Dart and Flutter applications, using SQLite as its backend. It provides a Gremlin-inspired traversal API and uses a property graph model to manage data.
+
+### Basic Information
+- **Package Name**: rinne_graph
+- **Language**: Dart 3.7 or later
+- **Database**: SQLite (using sqflite_common_ffi)
+- **Data Model**: Property Graph (vertices and edges)
+- **API**: Gremlin-style Traversal API
+
+## Architecture
+
+### Main Components
+
+1. **Database Layer**
+   - `Database`: Abstract interface for database operations
+   - `SQLiteDatabase`: Concrete implementation using SQLite
+   - `Transaction`: Transaction processing
+
+2. **Model Layer**
+   - `Element`: Common interface for vertices and edges
+   - `Vertex`: Graph vertices
+   - `Edge`: Graph edges (directed)
+
+3. **Graph Operation Layer**
+   - `Graph`: Operations on the entire graph database
+   - `GraphStatistics`: Graph statistics
+
+4. **Traversal Layer**
+   - `TraversalSource`: Starting point for traversals
+   - `Traversal`: Chain of traversal steps
+   - `SqlTraversal`: SQL-based traversal implementation
+
+### Database Schema
+
+The database uses the following table structure:
+
+```sql
+-- Vertices table
+CREATE TABLE vertices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Vertex labels table
+CREATE TABLE vertex_labels (
+  vertex_id INTEGER,
+  label TEXT NOT NULL,
+  PRIMARY KEY (vertex_id, label),
+  FOREIGN KEY (vertex_id) REFERENCES vertices(id) ON DELETE CASCADE
+);
+
+-- Vertex properties table
+CREATE TABLE vertex_properties (
+  vertex_id INTEGER,
+  key TEXT NOT NULL,
+  value NONE,
+  type INTEGER NOT NULL,
+  PRIMARY KEY (vertex_id, key),
+  FOREIGN KEY (vertex_id) REFERENCES vertices(id) ON DELETE CASCADE
+);
+
+-- Edges table
+CREATE TABLE edges (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_vertex_id INTEGER NOT NULL,
+  to_vertex_id INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (from_vertex_id) REFERENCES vertices(id) ON DELETE CASCADE,
+  FOREIGN KEY (to_vertex_id) REFERENCES vertices(id) ON DELETE CASCADE
+);
+
+-- Edge labels table
+CREATE TABLE edge_labels (
+  edge_id INTEGER,
+  label TEXT NOT NULL,
+  PRIMARY KEY (edge_id, label),
+  FOREIGN KEY (edge_id) REFERENCES edges(id) ON DELETE CASCADE
+);
+
+-- Edge properties table
+CREATE TABLE edge_properties (
+  edge_id INTEGER,
+  key TEXT NOT NULL,
+  value NONE,
+  type INTEGER NOT NULL,
+  PRIMARY KEY (edge_id, key),
+  FOREIGN KEY (edge_id) REFERENCES edges(id) ON DELETE CASCADE
+);
+```
+
+### Table Descriptions
+
+#### vertices
+- **Purpose**: Stores all graph vertices (nodes)
+- **Columns**:
+  - `id`: Unique vertex identifier (auto-incremented)
+  - `created_at`: Timestamp when vertex was created
+  - `updated_at`: Timestamp when vertex was last updated
+- **Usage**: Referenced by vertex_labels and vertex_properties tables
+
+#### vertex_labels
+- **Purpose**: Stores labels assigned to vertices (many-to-many relationship)
+- **Columns**:
+  - `vertex_id`: Reference to vertex
+  - `label`: Label name (text)
+- **Key**: Composite primary key (vertex_id, label) ensures each label appears once per vertex
+- **Usage**: Used by `hasLabel()` and `hasNotLabel()` traversal steps
+
+#### vertex_properties
+- **Purpose**: Stores key-value properties for vertices
+- **Columns**:
+  - `vertex_id`: Reference to vertex
+  - `key`: Property key name
+  - `value`: Property value (stored as SQLite NONE type, actual value encoded)
+  - `type`: Property type ID (0-7, see Property Type IDs below)
+- **Key**: Composite primary key (vertex_id, key) ensures each property key appears once per vertex
+- **Usage**: Used by `hasKey()`, `values()`, `valueMap()` and other property-related steps
+
+#### edges
+- **Purpose**: Stores all graph edges (directed connections between vertices)
+- **Columns**:
+  - `id`: Unique edge identifier (auto-incremented)
+  - `from_vertex_id`: Source vertex ID
+  - `to_vertex_id`: Target vertex ID
+  - `created_at`: Timestamp when edge was created
+  - `updated_at`: Timestamp when edge was last updated
+- **Usage**: Referenced by edge_labels and edge_properties tables
+
+#### edge_labels
+- **Purpose**: Stores labels assigned to edges (many-to-many relationship)
+- **Columns**:
+  - `edge_id`: Reference to edge
+  - `label`: Label name (text)
+- **Key**: Composite primary key (edge_id, label) ensures each label appears once per edge
+- **Usage**: Used by edge traversal steps like `outE()`, `inE()`, `bothE()`
+
+#### edge_properties
+- **Purpose**: Stores key-value properties for edges
+- **Columns**:
+  - `edge_id`: Reference to edge
+  - `key`: Property key name
+  - `value`: Property value (stored as SQLite NONE type, actual value encoded)
+  - `type`: Property type ID (0-7, see Property Type IDs below)
+- **Key**: Composite primary key (edge_id, key) ensures each property key appears once per edge
+- **Usage**: Used by property-related steps on edges
+
+**Property Type IDs**:
+- 0: null
+- 1: boolean
+- 2: integer
+- 3: float
+- 4: string
+- 5: datetime
+- 6: blob
+- 7: list
+
+## Data Model
+
+### Element (Element)
+
+Common interface for vertices and edges:
+
+```dart
+abstract class Element {
+  int? get id;                              // Element ID
+  Set<String> get labels;                   // Label set
+  Map<String, dynamic> get properties;     // Property map
+  DateTime? get createdAt;                  // Creation timestamp
+  DateTime? get updatedAt;                  // Update timestamp
+
+  bool hasAnyLabel(List<String> labels);
+  bool hasProperty(String key);
+  Object? getProperty(String key);
+  void setProperty(String key, Object? value);
+  void removeProperty(String key);
+}
+```
+
+### Vertex (Vertex)
+
+```dart
+abstract class Vertex implements Element {
+  factory Vertex({
+    int? id,
+    Set<String>? labels,
+    Map<String, dynamic>? properties,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  });
+
+  factory Vertex.fromMap(Map<String, dynamic> map);
+  factory Vertex.fromJson(Map<String, dynamic> json);
+
+  Map<String, dynamic> toJson();
+  Vertex copyWith({...});
+}
+```
+
+### Edge (Edge)
+
+```dart
+abstract class Edge implements Element {
+  factory Edge({
+    required int fromVertexId,
+    required int toVertexId,
+    int? id,
+    Set<String>? labels,
+    Map<String, dynamic>? properties,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  });
+
+  int get fromVertexId;                     // Source vertex ID
+  int get toVertexId;                       // Target vertex ID
+
+  bool isOutgoingFrom(int vertexId);        // Is outgoing edge from vertex
+  bool isIncomingTo(int vertexId);          // Is incoming edge to vertex
+  bool isConnectedTo(int vertexId);         // Is connected to vertex
+}
+```
+
+### Property Value Types
+
+Supported property value types:
+- `bool`: Boolean value
+- `int`: Integer
+- `double`: Floating-point number
+- `String`: String
+- `DateTime`: Date and time
+- `List<dynamic>`: List (array) - can contain elements of any type
+- `NullValue`: Explicit null value (null indicating property existence)
+
+#### List-type Properties
+
+List-type properties have the following characteristics:
+
+- **Type**: Treated as `List<dynamic>`, can contain elements of any type
+- **Storage Format**: Stored as JSON-encoded string in SQLite
+- **Examples**: `['tag1', 'tag2', 'tag3']`, `[1, 2, 3]`, `[true, false]`, `['text', 42, true]`
+
+```dart
+// Setting list-type properties
+vertex.setProperty('tags', ['developer', 'engineer', 'tech']);
+vertex.setProperty('scores', [85, 92, 78]);
+vertex.setProperty('flags', [true, false, true]);
+vertex.setProperty('mixed', ['text', 42, true]);
+
+// Getting list-type properties
+final tags = vertex.getProperty('tags') as List<dynamic>;
+```
+
+Note: If property access returns `null`, the property does not exist. To represent an empty property value, use the `NullValue` class.
+
+## Basic Usage
+
+### Creating and Connecting to Database
+
+```dart
+import 'package:rinne_graph/rinne_graph.dart';
+
+// Create an in-memory database
+final graph = await Graph.openInMemory();
+
+// Create a file-based database
+final graph = await Graph.open('my_graph.db');
+
+try {
+  // Graph operations
+} finally {
+  await graph.close();
+}
+```
+
+### Creating Vertices and Edges
+
+```dart
+await graph.transaction((txn) async {
+  // Create vertices
+  final alice = await txn.createVertex(Vertex(
+    labels: {'person'},
+    properties: {'name': 'Alice', 'age': 30}
+  ));
+
+  final bob = await txn.createVertex(Vertex(
+    labels: {'person'},
+    properties: {'name': 'Bob', 'age': 25}
+  ));
+
+  // Create edge
+  final edge = await txn.createEdge(Edge(
+    fromVertexId: alice.id!,
+    toVertexId: bob.id!,
+    labels: {'knows'},
+    properties: {'since': 2020}
+  ));
+});
+```
+
+## Traversal API
+
+### Basic Concepts
+
+Traversals have the following characteristics:
+1. **Step Chaining**: Multiple steps are chained together
+2. **Lazy Evaluation**: Queries are not executed until data is actually needed
+3. **Type Conversion**: Each step may transform data types
+4. **Composability**: Steps can be combined to build complex queries
+
+### Starting Traversals
+
+```dart
+final g = graph.traversal();
+
+// Get all vertices
+final vertices = g.V();
+
+// Get specific vertices by ID
+final vertex = g.V([1, 2, 3]);
+
+// Get all edges
+final edges = g.E();
+
+// Get specific edges by ID
+final edge = g.E([1, 2, 3]);
+```
+
+### Implemented Traversal Steps
+
+#### 1. Starting Steps
+
+**V([List<int>? ids])**
+- Select vertices
+- Parameters: List of vertex IDs (all vertices if omitted)
+- Output: Vertices
+
+```dart
+final allVertices = await g.V().toList();
+final specificVertices = await g.V([1, 2, 3]).toList();
+```
+
+**E([List<int>? ids])**
+- Select edges
+- Parameters: List of edge IDs (all edges if omitted)
+- Output: Edges
+
+```dart
+final allEdges = await g.E().toList();
+final specificEdges = await g.E([1, 2, 3]).toList();
+```
+
+#### 2. Filtering Steps
+
+**hasId([List<int>? ids])**
+- Filter by ID
+- Parameters: List of IDs
+- Output: Same type as input
+
+```dart
+final vertices = await g.V().hasId([1, 2, 3]).toList();
+```
+
+**hasLabel(List<String> labels)**
+- Filter by label
+- Parameters: List of labels
+- Output: Same type as input
+
+```dart
+final persons = await g.V().hasLabel(['person']).toList();
+final knowsEdges = await g.E().hasLabel(['knows']).toList();
+```
+
+**hasKey(String key, dynamic value)**
+- Filter by property
+- Parameters: Property key and value
+- Output: Same type as input
+
+```dart
+final alice = await g.V().hasKey('name', 'Alice').toList();
+final adults = await g.V().hasKey('age', 30).toList();
+```
+
+**hasNot(String key)**
+- Filter by property non-existence
+- Parameters: Property key
+- Output: Same type as input
+
+```dart
+final noAge = await g.V().hasNot('age').toList();
+```
+
+**hasKeyContains(String key, String value)**
+- Filter by property value containing string
+- Parameters: Property key and search string
+- Output: Same type as input
+
+```dart
+final gmailUsers = await g.V().hasKeyContains('email', 'gmail').toList();
+```
+
+**hasKeyStartsWith(String key, String value)**
+- Filter by property value starting with string
+- Parameters: Property key and search string
+- Output: Same type as input
+
+```dart
+final aNames = await g.V().hasKeyStartsWith('name', 'A').toList();
+```
+
+**hasKeyEndsWith(String key, String value)**
+- Filter by property value ending with string
+- Parameters: Property key and search string
+- Output: Same type as input
+
+```dart
+final comDomains = await g.V().hasKeyEndsWith('email', '.com').toList();
+```
+
+**hasKeyMatches(String key, String pattern)**
+- Filter by property value matching regex pattern
+- Parameters: Property key and regex pattern
+- Output: Same type as input
+
+```dart
+final phoneNumbers = await g.V().hasKeyMatches('phone', r'^\d{3}-\d{3}-\d{4}$').toList();
+```
+
+**hasKeyGreaterThan(String key, dynamic value)**
+- Filter by property value greater than
+- Parameters: Property key and comparison value
+- Output: Same type as input
+
+```dart
+final adults = await g.V().hasKeyGreaterThan('age', 18).toList();
+```
+
+**hasKeyLessThan(String key, dynamic value)**
+- Filter by property value less than
+- Parameters: Property key and comparison value
+- Output: Same type as input
+
+```dart
+final youngUsers = await g.V().hasKeyLessThan('age', 30).toList();
+```
+
+**hasKeyBetween(String key, dynamic min, dynamic max)**
+- Filter by property value in range
+- Parameters: Property key, minimum value, maximum value
+- Output: Same type as input
+
+```dart
+final middleAged = await g.V().hasKeyBetween('age', 30, 50).toList();
+```
+
+**hasKeyIn(String key, List<dynamic> values)**
+- Filter by property value in list
+- Parameters: Property key and list of values
+- Output: Same type as input
+
+```dart
+final primaryColors = await g.V().hasKeyIn('color', ['red', 'blue', 'yellow']).toList();
+```
+
+**hasKeyNotIn(String key, List<dynamic> values)**
+- Filter by property value not in list
+- Parameters: Property key and list of values
+- Output: Same type as input
+
+```dart
+final nonArchived = await g.V().hasKeyNotIn('status', ['archived', 'deleted']).toList();
+```
+
+**hasNotLabel(List<String> labels)**
+- Filter by not having labels
+- Parameters: List of labels
+- Output: Same type as input
+
+```dart
+final nonPersons = await g.V().hasNotLabel(['person']).toList();
+```
+
+#### List Search Methods
+
+**listContains(String key, dynamic value)**
+- Filter by list property containing value (using LIKE operator)
+- Parameters: Property key and search value
+- Output: Same type as input
+- Note: Partial number matches may occur (e.g., searching for 6 matches -4716)
+
+```dart
+final dartDevelopers = await g.V().listContains('skills', 'dart').toList();
+```
+
+**listContainsExact(String key, dynamic value)**
+- Filter by list property exactly containing value (using JSON1 extension)
+- Parameters: Property key and search value
+- Output: Same type as input
+- Recommended: Use this for exact matching
+
+```dart
+final dartDevelopers = await g.V().listContainsExact('skills', 'dart').toList();
+```
+
+**listLength(String key, int length)**
+- Filter by list property length (using JSON1 extension)
+- Parameters: Property key and expected length
+- Output: Same type as input
+
+```dart
+final threeSkills = await g.V().listLength('skills', 3).toList();
+```
+
+#### 3. Navigation Steps
+
+**out([List<String>? labels])**
+- Move to adjacent vertices via outgoing edges
+- Parameters: List of edge labels (all labels if omitted)
+- Input: Vertices
+- Output: Vertices
+
+```dart
+final friends = await g.V().hasLabel(['person']).out(['knows']).toList();
+```
+
+**in_([List<String>? labels])**
+- Move to adjacent vertices via incoming edges
+- Parameters: List of edge labels (all labels if omitted)
+- Input: Vertices
+- Output: Vertices
+
+```dart
+final knownBy = await g.V().hasLabel(['person']).in_(['knows']).toList();
+```
+
+**both([List<String>? labels])**
+- Move to adjacent vertices via both directions
+- Parameters: List of edge labels (all labels if omitted)
+- Input: Vertices
+- Output: Vertices
+
+```dart
+final connected = await g.V().hasLabel(['person']).both(['knows']).toList();
+```
+
+#### 4. Edge Navigation Steps
+
+**outE([List<String>? labels])**
+- Move to outgoing edges
+- Parameters: List of edge labels (all labels if omitted)
+- Input: Vertices
+- Output: Edges
+
+```dart
+final outgoingEdges = await g.V().hasLabel(['person']).outE(['knows']).toList();
+```
+
+**inE([List<String>? labels])**
+- Move to incoming edges
+- Parameters: List of edge labels (all labels if omitted)
+- Input: Vertices
+- Output: Edges
+
+```dart
+final incomingEdges = await g.V().hasLabel(['person']).inE(['knows']).toList();
+```
+
+**bothE([List<String>? labels])**
+- Move to edges in both directions
+- Parameters: List of edge labels (all labels if omitted)
+- Input: Vertices
+- Output: Edges
+
+```dart
+final allEdges = await g.V().hasLabel(['person']).bothE().toList();
+```
+
+**outV()**
+- Move to source vertex of edge
+- Input: Edges
+- Output: Vertices
+
+```dart
+final sourceVertices = await g.E().hasLabel(['knows']).outV().toList();
+```
+
+**inV()**
+- Move to target vertex of edge
+- Input: Edges
+- Output: Vertices
+
+```dart
+final targetVertices = await g.E().hasLabel(['knows']).inV().toList();
+```
+
+**bothV()**
+- Move to both endpoint vertices of edge
+- Input: Edges
+- Output: Vertices
+
+```dart
+final endpointVertices = await g.E().hasLabel(['knows']).bothV().toList();
+```
+
+#### 5. Property Operation Steps
+
+**id()**
+- Get element ID
+- Output: ID value
+
+```dart
+final ids = await g.V().hasLabel(['person']).id().toList();
+```
+
+**values([List<String>? keys])**
+- Get property values
+- Parameters: List of property keys (all properties if omitted)
+- Output: Property values
+
+```dart
+final names = await g.V().hasLabel(['person']).values(['name']).toList();
+```
+
+**valueMap([List<String>? keys])**
+- Get property map
+- Parameters: List of property keys (all properties if omitted)
+- Output: Property map
+
+```dart
+final personMaps = await g.V().hasLabel(['person']).valueMap(['name', 'age']).toList();
+```
+
+#### 6. Aggregation Steps
+
+**count()**
+- Count elements
+- Output: Count value
+
+```dart
+final vertexCount = await g.V().count().toList();
+final personCount = await g.V().hasLabel(['person']).count().toList();
+```
+
+**dedup()**
+- Remove duplicates
+- Output: Same type as input
+
+```dart
+final uniqueVertices = await g.V().both(['knows']).dedup().toList();
+```
+
+#### 7. Path Operation Steps
+
+**as(String label)**
+- Label a step
+- Parameters: Label name
+- Output: Same type as input
+
+```dart
+final result = await g.V().hasLabel(['person']).as('people').toList();
+```
+
+**select(List<String> labels)**
+- Select specific labels
+- Parameters: List of label names
+- Output: Selected values
+
+```dart
+final result = await g.V().as('people').select(['people']).toList();
+```
+
+**path()**
+- Get path information
+- Output: Path information
+
+```dart
+final paths = await g.V().out(['knows']).path().toPathList();
+```
+
+#### 8. Custom Processing Steps
+
+**filter(bool Function(dynamic) filterFunction)**
+- Filter with custom condition
+- Parameters: Filter function
+- Output: Same type as input
+
+```dart
+final filtered = await g.V().filter((row) => row != null).toList();
+```
+
+**map(dynamic Function(dynamic) transformer)**
+- Custom transformation
+- Parameters: Transformation function
+- Output: Transformed values
+
+```dart
+final transformed = await g.V().map((row) => 'Vertex: $row').toList();
+```
+
+#### 9. Sorting and Limiting
+
+**limit(int limit)**
+- Limit result count
+- Parameters: Limit count
+- Output: Same type as input
+
+```dart
+final first10 = await g.V().limit(10).toList();
+```
+
+**skip(int offset)**
+- Skip results (for pagination)
+- Parameters: Skip count
+- Output: Same type as input
+
+```dart
+final pageSize = 20;
+final page = 3;
+final results = await g.V()
+    .hasLabel(['person'])
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
+    .toList();
+```
+
+**order()**
+- Sort results
+- Output: Same type as input
+
+```dart
+final ordered = await g.V().order().toList();
+```
+
+**byId([SortOrder? order])**
+- Sort by ID
+- Parameters: Sort order (asc, desc, shuffle)
+- Output: Same type as input
+
+```dart
+final sortedById = await g.V().byId(SortOrder.asc).toList();
+```
+
+**byKey(String key, [SortOrder? order])**
+- Sort by property key
+- Parameters: Property key, sort order
+- Output: Same type as input
+
+```dart
+final sortedByName = await g.V().byKey('name', SortOrder.asc).toList();
+```
+
+#### 10. Grouping Steps
+
+**group()**
+- Group results
+- Output: Grouped results
+
+```dart
+final grouped = await g.V().group().toList();
+```
+
+#### 11. Mutation Steps (Transaction-only / Minimal Specification)
+
+Note:
+- Only available within transaction traversals (txn.traversal())
+- Non-transaction traversals (graph.traversal()) throw UnsupportedError
+- Currently only executable as terminal steps (via toList(), no chaining after)
+
+**mergeV({ labels, match, onCreate?, onMatch? })**
+- Purpose: Vertex "merge" (upsert)
+- Behavior:
+  1. Existing search: Find vertex with all specified labels and all key=value pairs matching
+     - NullValue matches as "value IS NULL" with type=null
+  2. If found: Upsert each key in onMatch (delete existing, insert new). Add missing labels with INSERT OR IGNORE
+  3. If not found: Create with labels, properties from match ∪ onCreate (onCreate takes priority for same keys)
+  4. Return: [Vertex] (typically 1 item)
+- Error: Multiple matches throw VertexException, empty labels throw ArgumentError
+
+Usage example:
+```dart
+final result = await graph.transaction((txn) async {
+  return txn.traversal()
+    .V()
+    .mergeV(
+      labels: {'person'},
+      match: {'name': 'Alice'},
+      onCreate: {'age': 30},
+      onMatch: {'seenAt': DateTime.now()},
+    )
+    .toList(); // => [Vertex]
+});
+```
+
+**mergeE({ labels, match, fromAlias, toAlias, onCreate?, onMatch? })**
+- Purpose: Edge "merge" (upsert)
+- Endpoint specification (simple alias resolution):
+  - Define labels using V([id]).as('a') pattern before mergeE
+  - Currently only supports this simple pattern (general as/select/path resolution not yet supported)
+- Behavior:
+  1. Existing search: Find edge with matching from/to vertices, all specified labels, and all key=value pairs matching
+     - NullValue matches as "value IS NULL" with type=null
+  2. If found: Upsert each key in onMatch (delete existing, insert new). Add missing labels with INSERT OR IGNORE
+  3. If not found: Create with labels, properties from match ∪ onCreate (onCreate takes priority for same keys)
+  4. Return: [Edge] (typically 1 item)
+- Error: Multiple matches throw EdgeException, empty labels throw ArgumentError, undefined alias throw ArgumentError
+
+Usage example:
+```dart
+final result = await graph.transaction((txn) async {
+  final v1 = await txn.createVertex(Vertex(labels: {'person'}, properties: {'name': 'Alice'}));
+  final v2 = await txn.createVertex(Vertex(labels: {'person'}, properties: {'name': 'Bob'}));
+
+  return txn.traversal()
+    .V([v1.id!]).as('a')
+    .V([v2.id!]).as('b')
+    .mergeE(
+      labels: {'knows'},
+      match: {'since': 2020},
+      fromAlias: 'a',
+      toAlias: 'b',
+      onCreate: {'weight': 0.5},
+      onMatch: {'updated': true},
+    )
+    .toList(); // => [Edge]
+});
+```
+
+### Unimplemented Steps
+
+The following steps are currently not implemented:
+
+- **repeat(Traversal traversal)**: Repeat processing
+- **until(bool Function(dynamic) predicate)**: Termination condition
+- **times(int times)**: Repeat count
+
+
+## Execution and Queries
+
+### Getting Results
+
+```dart
+// Get as list
+final results = await traversal.toList();
+
+// Get as set
+final uniqueResults = await traversal.toSet();
+
+// Get as path list
+final paths = await traversal.toPathList();
+```
+
+### Checking Generated Query
+
+```dart
+final traversal = g.V().hasLabel(['person']).out(['knows']);
+final query = traversal.buildQuery();
+print('SQL: ${query.query}');
+print('Parameters: ${query.parameters}');
+```
+
+## Complex Query Examples
+
+### Basic Traversals
+
+```dart
+// Get person's friends
+final friends = await g.V()
+    .hasLabel(['person'])
+    .hasKey('name', 'Alice')
+    .out(['knows'])
+    .toList();
+
+// Get friends of friends
+final friendsOfFriends = await g.V()
+    .hasLabel(['person'])
+    .hasKey('name', 'Alice')
+    .out(['knows'])
+    .out(['knows'])
+    .dedup()
+    .toList();
+
+// Get mutual friends
+final mutualFriends = await g.V()
+    .hasLabel(['person'])
+    .hasKey('name', 'Alice')
+    .both(['knows'])
+    .toList();
+```
+
+### Property Operations
+
+```dart
+// Get list of names
+final names = await g.V()
+    .hasLabel(['person'])
+    .values(['name'])
+    .toList();
+
+// Get person details
+final personDetails = await g.V()
+    .hasLabel(['person'])
+    .valueMap(['name', 'age'])
+    .toList();
+
+// Filter by age
+final adults = await g.V()
+    .hasLabel(['person'])
+    .hasKey('age', 18)
+    .toList();
+```
+
+### Edge Traversals
+
+```dart
+// Get outgoing relations
+final outgoingRelations = await g.V()
+    .hasLabel(['person'])
+    .hasKey('name', 'Alice')
+    .outE()
+    .toList();
+
+// Get related people
+final relatedPeople = await g.V()
+    .hasLabel(['person'])
+    .hasKey('name', 'Alice')
+    .outE(['knows'])
+    .inV()
+    .toList();
+
+// Complex edge traversal
+final connections = await g.V()
+    .hasLabel(['person'])
+    .outE(['knows'])
+    .inV()
+    .outE(['works_with'])
+    .inV()
+    .toList();
+```
+
+### Custom Processing
+
+```dart
+// Using filter function
+final filtered = await g.V()
+    .hasLabel(['person'])
+    .filter((row) => row != null)
+    .toList();
+
+// Using transformation function
+final transformed = await g.V()
+    .hasLabel(['person'])
+    .map((row) => 'Person: ${row.toString()}')
+    .toList();
+
+// Combining filter and transformation
+final processed = await g.V()
+    .hasLabel(['person'])
+    .filter((row) => row != null)
+    .map((row) => processPersonData(row))
+    .toList();
+```
+
+### Aggregation and Counting
+
+```dart
+// Count total vertices
+final totalVertices = await g.V().count().toList();
+
+// Count specific label
+final personCount = await g.V().hasLabel(['person']).count().toList();
+
+// Count edges
+final edgeCount = await g.E().count().toList();
+
+// Count after deduplication
+final uniqueConnections = await g.V()
+    .both(['knows'])
+    .dedup()
+    .count()
+    .toList();
+```
+
+## Error Handling
+
+### Common Errors
+
+1. **Type Mismatch**: Step input/output types don't match
+2. **Non-existent Property**: Accessing non-existent property key
+3. **Invalid ID**: Specifying non-existent vertex or edge ID
+4. **Database Connection Error**: Database file issues
+
+### Error Handling Strategies
+
+```dart
+try {
+  final results = await g.V().hasLabel(['person']).toList();
+} catch (e) {
+  print('Traversal error: $e');
+}
+
+// Error handling in transactions
+await graph.transaction((txn) async {
+  try {
+    final vertex = await txn.createVertex(Vertex(
+      labels: {'person'},
+      properties: {'name': 'Alice'}
+    ));
+    return vertex;
+  } catch (e) {
+    print('Vertex creation error: $e');
+    rethrow;
+  }
+});
+```
+
+## Performance Considerations
+
+### SQL-converted Steps vs Post-processing Steps
+
+**SQL-converted Steps (High Performance)**:
+- `V()`, `E()`, `hasLabel()`, `hasKey()`, `out()`, `in_()`, `both()`
+- `outE()`, `inE()`, `bothE()`, `outV()`, `inV()`, `bothV()`
+- `values()`, `valueMap()`, `count()`, `dedup()`
+
+**Post-processing Steps (Lower Performance)**:
+- `filter()`, `map()`
+
+### Optimization Tips
+
+1. **Early Filtering**: Execute `hasLabel()` and `hasKey()` first
+2. **Use limit()**: Restrict result count for large datasets
+3. **Proper Indexing**: Database schema has appropriate indexes
+4. **Use Transactions**: Execute multiple operations within transactions
+
+```dart
+// Good: Early filtering
+final optimized = await g.V()
+    .hasLabel(['person'])      // Early filtering
+    .hasKey('age', 30)         // Further filtering
+    .out(['knows'])
+    .limit(100)                // Limit results
+    .toList();
+
+// Avoid: Excessive post-processing filters
+final inefficient = await g.V()
+    .filter((row) => complexCondition1(row))
+    .filter((row) => complexCondition2(row))
+    .map((row) => expensiveTransform(row))
+    .toList();
+```
+
+## Limitations
+
+### Current Limitations
+
+1. **Stream Processing**: `stream` property not implemented
+2. **Complex Path Operations**: `as()`/`select()` basic implementation only
+3. **Loop Processing**: `repeat()`/`until()`/`times()` not implemented
+4. **Advanced Aggregation**: `group()` basic implementation only
+5. **Transaction Isolation**: Read-only transactions not supported
+6. **mergeV/mergeE Constraints**: Transaction-only, terminal steps only
+7. **Alias Resolution Limitation**: Only `V([id]).as(label)` simple pattern supported
+
+### Workarounds
+
+```dart
+// Stream processing alternative
+final results = await g.V().toList();
+for (final result in results) {
+  // Process
+}
+
+// Complex filtering alternative
+final candidates = await g.V().hasLabel(['person']).toList();
+final filtered = candidates.where((vertex) => complexCondition(vertex));
+
+// Loop processing alternative
+var current = await g.V().hasKey('name', 'Alice').toList();
+for (int i = 0; i < 3; i++) {
+  final ids = current.map((v) => v['id'] as int).toList();
+  current = await g.V(ids).out(['knows']).toList();
+}
+```
+
+## Development and Testing
+
+### Running Tests
+
+```bash
+# Run all tests
+dart test
+
+# Run specific test file
+dart test test/traversal/count_step_test.dart
+
+# Run traversal tests
+dart test test/traversal/
+```
+
+### Debugging
+
+```dart
+// Check generated query
+final traversal = g.V().hasLabel(['person']).out(['knows']);
+final query = traversal.buildQuery();
+print('Generated SQL: ${query.query}');
+print('Parameters: ${query.parameters}');
+
+// Check results
+final results = await graph.database.rawQuery(query.query, query.parameters);
+print('Raw results: $results');
+```
+
+## Summary
+
+RinneGraph is a lightweight graph database library based on SQLite, providing a Gremlin-style traversal API. Core functionality is implemented and supports basic to complex graph operations.
+
+**Key Features**:
+- Property graph model
+- High performance through SQL conversion
+- Flexible custom processing
+- Transaction support
+- Type-safe API
+
+**Use Cases**:
+- Personal data management
+- Relationship visualization
+- Graph-based search
+- Knowledge graph construction
+
+## Transaction-enabled Traversal API
+
+### Overview
+
+Using the traversal API within transactions allows complex graph operations while maintaining data consistency.
+
+### Basic Usage
+
+```dart
+await graph.transaction((txn) async {
+  // Get traversal source within transaction
+  final g = txn.traversal();
+
+  // Use traversal API normally
+  final vertices = await g.V().hasLabel(['person']).toList();
+  final edges = await g.E().hasLabel(['knows']).toList();
+
+  // Combine with CRUD operations
+  final newVertex = await txn.createVertex(vertex);
+  final neighbors = await g.V([newVertex.id!]).out().toList();
+
+  return neighbors;
+});
+```
+
+### Rollback Functionality
+
+Exceptions within transactions automatically rollback all changes:
+
+```dart
+try {
+  await graph.transaction((txn) async {
+    final g = txn.traversal();
+
+    // Create data
+    final vertex = await txn.createVertex(newVertex);
+
+    // Condition check
+    final count = await g.V().hasLabel(['person']).count().toList();
+    if (count.first['count_value'] > 100) {
+      throw Exception('Too many persons'); // Auto rollback
+    }
+
+    // Additional operations
+    await txn.createEdge(newEdge);
+  });
+} catch (e) {
+  print('Transaction rolled back: $e');
+}
+```
+
+### Complex Business Logic
+
+```dart
+await graph.transaction((txn) async {
+  final g = txn.traversal();
+
+  // Validate existing data
+  final existingConnections = await g.V([userId])
+      .out(['follows'])
+      .count()
+      .toList();
+
+  final currentCount = existingConnections.first['count_value'] as int;
+  if (currentCount >= maxConnections) {
+    throw Exception('Connection limit exceeded');
+  }
+
+  // Create new connection
+  await txn.createEdge(Edge(
+    fromVertexId: userId,
+    toVertexId: targetUserId,
+    labels: {'follows'},
+  ));
+
+  // Validate after creation
+  final updatedConnections = await g.V([userId])
+      .out(['follows'])
+      .toList();
+
+  return updatedConnections;
+});
+```
+
+### Benefits
+
+1. **Data Consistency**: Traversal queries and CRUD operations execute in same transaction
+2. **Automatic Rollback**: All changes automatically reverted on exception
+3. **Consistent View**: Provides consistent data view within transaction
+4. **API Compatibility**: Same interface as regular traversal API
+
+## Advanced Usage Examples
+
+### List-type Property Usage
+
+```dart
+// Manage developer skills
+final alice = await graph.transaction((txn) async {
+  return await txn.createVertex(Vertex(
+    labels: {'Developer'},
+    properties: {
+      'name': 'Alice',
+      'skills': ['dart', 'flutter', 'python', 'sql'],
+      'experience_years': [3, 2, 5, 4],
+      'certifications': ['AWS', 'Google Cloud'],
+      'active_projects': ['mobile_app', 'web_dashboard'],
+    },
+  ));
+});
+
+// Search by skill
+final dartDevelopers = await graph.traversal()
+    .V()
+    .hasLabel(['Developer'])
+    .listContainsExact('skills', 'dart')
+    .toList();
+
+// Multiple skills
+final fullStackDevs = await graph.traversal()
+    .V()
+    .hasLabel(['Developer'])
+    .listContainsExact('skills', 'dart')
+    .listContainsExact('skills', 'python')
+    .toList();
+
+// Specific skill count
+final experiencedDevs = await graph.traversal()
+    .V()
+    .hasLabel(['Developer'])
+    .listLength('skills', 4)
+    .toList();
+```
+
+### Complex Graph Analysis
+
+```dart
+// Social network analysis
+Future<Map<String, dynamic>> analyzeSocialNetwork(Graph graph) async {
+  final g = graph.traversal();
+
+  // Total people
+  final totalPeople = await g.V().hasLabel(['person']).count().toList();
+
+  // Total relations
+  final totalRelations = await g.E().hasLabel(['knows']).count().toList();
+
+  return {
+    'totalPeople': totalPeople.first,
+    'totalRelations': totalRelations.first,
+  };
+}
+```
+
+### Path Tracking
+
+```dart
+// Track connection paths
+Future<List<List<dynamic>>> findConnectionPaths(
+  Graph graph,
+  String fromName,
+  String toName
+) async {
+  final g = graph.traversal();
+
+  // Direct connection
+  final directConnection = await g.V()
+      .hasLabel(['person'])
+      .hasKey('name', fromName)
+      .out(['knows'])
+      .hasKey('name', toName)
+      .toList();
+
+  if (directConnection.isNotEmpty) {
+    return [['direct', fromName, toName]];
+  }
+
+  // Two-step connection
+  final twoStepConnections = await g.V()
+      .hasLabel(['person'])
+      .hasKey('name', fromName)
+      .out(['knows'])
+      .filter((intermediate) => intermediate['name'] != toName)
+      .out(['knows'])
+      .hasKey('name', toName)
+      .toList();
+
+  return twoStepConnections.map((connection) =>
+      ['two-step', fromName, 'intermediate', toName]
+  ).toList();
+}
+```
+
+### Bulk Data Processing
+
+```dart
+// Efficient bulk processing
+Future<void> processBulkData(Graph graph) async {
+  await graph.transaction((txn) async {
+    // Batch vertex creation
+    final vertices = <Vertex>[];
+    for (int i = 0; i < 1000; i++) {
+      vertices.add(Vertex(
+        labels: {'item'},
+        properties: {'index': i, 'category': 'batch_${i % 10}'}
+      ));
+    }
+
+    // Bulk create
+    final createdVertices = <Vertex>[];
+    for (final vertex in vertices) {
+      createdVertices.add(await txn.createVertex(vertex));
+    }
+
+    // Bulk create relations
+    for (int i = 0; i < createdVertices.length - 1; i++) {
+      await txn.createEdge(Edge(
+        fromVertexId: createdVertices[i].id!,
+        toVertexId: createdVertices[i + 1].id!,
+        labels: {'next'},
+      ));
+    }
+  });
+}
+```
+
+### Custom Filters and Transformers
+
+```dart
+// Complex filtering condition
+bool isActiveUser(dynamic userData) {
+  if (userData is! Map<String, dynamic>) return false;
+
+  final lastLogin = userData['lastLogin'] as DateTime?;
+  final postCount = userData['postCount'] as int? ?? 0;
+
+  if (lastLogin == null) return false;
+
+  final daysSinceLogin = DateTime.now().difference(lastLogin).inDays;
+  return daysSinceLogin <= 30 && postCount >= 5;
+}
+
+// Custom transformation
+Map<String, dynamic> enrichUserData(dynamic userData) {
+  if (userData is! Map<String, dynamic>) return {};
+
+  final user = Map<String, dynamic>.from(userData);
+
+  // Calculate age group
+  final age = user['age'] as int? ?? 0;
+  user['ageGroup'] = age < 18 ? 'minor' :
+                     age < 65 ? 'adult' : 'senior';
+
+  // Calculate activity score
+  final postCount = user['postCount'] as int? ?? 0;
+  final friendCount = user['friendCount'] as int? ?? 0;
+  user['activityScore'] = (postCount * 2 + friendCount).toDouble();
+
+  return user;
+}
+
+// Usage
+Future<List<Map<String, dynamic>>> getActiveUsers(Graph graph) async {
+  return await graph.traversal()
+      .V()
+      .hasLabel(['user'])
+      .filter(isActiveUser)
+      .map(enrichUserData)
+      .toList()
+      .then((results) => results.cast<Map<String, dynamic>>());
+}
+```
+
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### 1. Type Errors
+
+```dart
+// Problem: Type mismatch
+// final result = await g.E().out(['knows']).toList(); // Error
+
+// Solution: Proper type conversion
+final result = await g.E().inV().out(['knows']).toList(); // OK
+```
+
+#### 2. Empty Results
+
+```dart
+// Problem: Unexpected empty results
+final result = await g.V().hasKey('age', '30').toList();
+
+// Solution: Check data type
+final result = await g.V().hasKey('age', 30).toList(); // Use number, not string
+```
+
+#### 3. Performance Issues
+
+```dart
+// Problem: Slow query
+final result = await g.V()
+    .filter((v) => expensiveOperation(v))
+    .hasLabel(['person'])
+    .toList();
+
+// Solution: Optimize filter order
+final result = await g.V()
+    .hasLabel(['person'])  // SQL filter first
+    .filter((v) => expensiveOperation(v))
+    .toList();
+```
+
+#### 4. Memory Usage
+
+```dart
+// Problem: Out of memory with large data
+final allData = await g.V().toList();
+
+// Solution: Implement pagination
+Future<List<dynamic>> getPaginatedData(Graph graph, int page, int size) async {
+  final offset = page * size;
+  return await graph.traversal()
+      .V()
+      .limit(size)
+      .toList();
+}
+```
+
+### Debugging Techniques
+
+```dart
+// 1. Check generated SQL
+void debugQuery(Traversal traversal) {
+  final query = traversal.buildQuery();
+  print('SQL: ${query.query}');
+  print('Parameters: ${query.parameters}');
+}
+
+// 2. Check intermediate results
+Future<void> debugTraversal(Graph graph) async {
+  final g = graph.traversal();
+
+  final step1 = await g.V().toList();
+  print('Step 1 (V): ${step1.length} results');
+
+  final step2 = await g.V().hasLabel(['person']).toList();
+  print('Step 2 (hasLabel): ${step2.length} results');
+
+  final step3 = await g.V().hasLabel(['person']).out(['knows']).toList();
+  print('Step 3 (out): ${step3.length} results');
+}
+
+// 3. Direct database inspection
+Future<void> inspectDatabase(Graph graph) async {
+  final vertexCount = await graph.database.rawQuery(
+    'SELECT COUNT(*) as count FROM vertices'
+  );
+  print('Total vertices: ${vertexCount.first['count']}');
+
+  final labels = await graph.database.rawQuery(
+    'SELECT DISTINCT label FROM vertex_labels'
+  );
+  print('Vertex labels: ${labels.map((r) => r['label']).toList()}');
+}
+```
+
+## Best Practices
+
+### 1. Efficient Query Creation
+
+```dart
+// Good: Early filtering
+final efficient = await g.V()
+    .hasLabel(['person'])      // Filter first
+    .hasKey('active', true)    // Then filter
+    .out(['knows'])
+    .hasLabel(['person'])      // Filter results
+    .limit(100)                // Limit
+    .toList();
+
+// Bad: Excessive post-processing
+final inefficient = await g.V()
+    .filter((v) => v['labels'].contains('person'))
+    .filter((v) => v['active'] == true)
+    .out(['knows'])
+    .filter((v) => v['labels'].contains('person'))
+    .toList();
+```
+
+### 2. Proper Transaction Usage
+
+```dart
+// Good: Group related operations
+await graph.transaction((txn) async {
+  final user = await txn.createVertex(Vertex(
+    labels: {'user'},
+    properties: {'name': 'Alice'}
+  ));
+
+  final profile = await txn.createVertex(Vertex(
+    labels: {'profile'},
+    properties: {'bio': 'Software Developer'}
+  ));
+
+  await txn.createEdge(Edge(
+    fromVertexId: user.id!,
+    toVertexId: profile.id!,
+    labels: {'has_profile'}
+  ));
+
+  return user;
+});
+
+// Bad: Separate transactions
+final user = await graph.transaction((txn) => txn.createVertex(...));
+final profile = await graph.transaction((txn) => txn.createVertex(...));
+await graph.transaction((txn) => txn.createEdge(...));
+```
+
+### 3. Error Handling
+
+```dart
+// Good: Proper error handling
+Future<List<dynamic>> safeQuery(Graph graph) async {
+  try {
+    return await graph.traversal()
+        .V()
+        .hasLabel(['person'])
+        .toList();
+  } on DatabaseException catch (e) {
+    print('Database error: $e');
+    return [];
+  } on ArgumentError catch (e) {
+    print('Invalid argument: $e');
+    return [];
+  } catch (e) {
+    print('Unexpected error: $e');
+    rethrow;
+  }
+}
+```
+
+### 4. Resource Management
+
+```dart
+// Good: Proper resource management
+Future<void> processGraph() async {
+  final graph = await Graph.open('data.db');
+  try {
+    await performOperations(graph);
+  } finally {
+    await graph.close();
+  }
+}
+
+// Better: Try-with-resources pattern
+Future<T> withGraph<T>(
+  String path,
+  Future<T> Function(Graph) operation
+) async {
+  final graph = await Graph.open(path);
+  try {
+    return await operation(graph);
+  } finally {
+    await graph.close();
+  }
+}
+```
+
+## Database Initialization Check Feature
+
+### Overview
+
+RinneGraph provides a dedicated API to check if SQLite files are properly initialized for the library before opening them. This allows safe pre-validation of database files.
+
+### Main API
+
+#### DatabaseManager.validateDatabaseFile()
+
+```dart
+Future<DatabaseValidationResult> validateDatabaseFile(
+  String path, {
+  DatabaseValidationOptions options = DatabaseValidationOptions.defaultOptions,
+})
+```
+
+- **Purpose**: Check if SQLite file is initialized for RinneGraph
+- **Parameters**:
+  - `path`: Path to database file to check
+  - `options`: Validation options (default if omitted)
+- **Return**: `DatabaseValidationResult` validation result
+- **Exception**: `DatabaseValidationException` on file access errors
+- **Feature**: Validation runs in read-only mode for safety
+
+### Validation Result Class
+
+#### DatabaseValidationResult
+
+```dart
+class DatabaseValidationResult {
+  final bool isValid;                    // Is database valid
+  final bool isInitialized;              // Is initialized for library
+  final List<String> missingTables;      // Missing tables
+  final List<String> missingIndexes;     // Missing indexes
+  final List<String> missingTriggers;    // Missing triggers
+  final int? schemaVersion;              // Schema version
+  final String? errorMessage;            // Error message
+
+  bool get isFullyInitialized;           // Is fully initialized
+  String get description;                // Detailed description
+}
+```
+
+#### DatabaseValidationOptions
+
+```dart
+class DatabaseValidationOptions {
+  final bool checkTables;                // Check table existence
+  final bool checkIndexes;               // Check index existence
+  final bool checkTriggers;              // Check trigger existence
+  final bool checkSchemaVersion;         // Check schema version
+  final bool strictMode;                 // Strict mode
+
+  // Predefined options
+  static const defaultOptions;           // Default validation
+  static const basic;                    // Basic validation (tables only)
+  static const strict;                   // Strict validation
+}
+```
+
+### Validation Targets
+
+#### Required Tables
+- `vertices` - Vertices table
+- `edges` - Edges table
+- `vertex_labels` - Vertex labels table
+- `edge_labels` - Edge labels table
+- `vertex_properties` - Vertex properties table
+- `edge_properties` - Edge properties table
+
+#### Required Indexes
+- `idx_vertex_labels` - Vertex labels index
+- `idx_edge_labels` - Edge labels index
+- `idx_edges_from_to` - Edge connection index
+- `idx_vertex_properties_key_type_value` - Vertex properties index
+- `idx_edge_properties_key_type_value` - Edge properties index
+
+#### Required Triggers
+- `update_vertex_timestamp` - Vertex timestamp trigger
+- `update_edge_timestamp` - Edge timestamp trigger
+
+### Usage Examples
+
+#### Basic Validation
+
+```dart
+final manager = DatabaseManager();
+final result = await manager.validateDatabaseFile('my_graph.db');
+
+if (result.isFullyInitialized) {
+  // Safe to open database
+  final graph = await Graph.open('my_graph.db');
+} else {
+  // Handle issues
+  print('Database issues: ${result.description}');
+}
+```
+
+#### Using Validation Options
+
+```dart
+// Basic validation only
+final basicResult = await manager.validateDatabaseFile(
+  'my_graph.db',
+  options: DatabaseValidationOptions.basic,
+);
+
+// Custom validation
+final customResult = await manager.validateDatabaseFile(
+  'my_graph.db',
+  options: DatabaseValidationOptions(
+    checkTables: true,
+    checkIndexes: true,
+    checkTriggers: false,
+    checkSchemaVersion: true,
+  ),
+);
+```
+
+#### Error Handling
+
+```dart
+try {
+  final result = await manager.validateDatabaseFile('my_graph.db');
+
+  if (!result.isValid) {
+    handleInvalidFile(result.errorMessage);
+  } else if (!result.isInitialized) {
+    handleUninitializedFile();
+  } else if (!result.isFullyInitialized) {
+    handlePartiallyInitialized(result);
+  }
+
+} on DatabaseValidationException catch (e) {
+  handleValidationError(e.message);
+}
+```
+
+### Implementation Notes
+
+#### Safety Considerations
+- Validation runs in read-only mode
+- No impact on existing data
+- File locking considerations
+
+#### Error Handling
+- Proper `DatabaseValidationException` catching
+- Detailed error messages
+- User-friendly messaging
+
+#### Performance
+- Validation time for large files
+- Use minimal validation options when needed
+- Cache results when appropriate
+
+#### Usage Patterns
+- Application startup validation
+- File selection pre-check
+- Database migration validation
+
+## Index Management API
+
+RinneGraph provides an index management API for users to optimize their database performance. This allows creating and managing indexes on frequently accessed properties.
+
+### Basic Concept
+
+- **User Responsibility**: Users manage index creation/deletion
+- **Performance Optimization**: Create indexes on frequently accessed properties
+- **Flexibility**: Optimize for application-specific access patterns
+
+### IndexEntityType enum
+
+Specifies the target for index creation:
+
+```dart
+enum IndexEntityType {
+  vertices,  // Vertex properties only
+  edges,     // Edge properties only
+  both,      // Both (future implementation)
+}
+```
+
+### PropertyIndexInfo Class
+
+Represents created index information:
+
+```dart
+class PropertyIndexInfo {
+  final String name;                    // Index name
+  final String propertyKey;             // Property key
+  final IndexEntityType entityType;     // Target entity type
+}
+```
+
+### Index Management Methods
+
+#### createPropertyIndex()
+
+Create a property index:
+
+```dart
+Future<void> createPropertyIndex(
+  String propertyKey, {
+  IndexEntityType entityType = IndexEntityType.vertices,
+  String? indexName,
+});
+```
+
+**Parameters:**
+- `propertyKey`: Property key to index
+- `entityType`: Target entity type (default: vertices)
+- `indexName`: Index name (auto-generated if omitted)
+
+**Usage example:**
+```dart
+final graph = await Graph.open('my_graph.db');
+
+// Create index on vertex 'name' property
+await graph.createPropertyIndex('name');
+
+// Create index on edge 'weight' property
+await graph.createPropertyIndex(
+  'weight',
+  entityType: IndexEntityType.edges,
+);
+
+// Create with custom name
+await graph.createPropertyIndex(
+  'title',
+  indexName: 'idx_custom_title',
+);
+```
+
+#### dropPropertyIndex()
+
+Drop a property index:
+
+```dart
+Future<void> dropPropertyIndex(String indexName);
+```
+
+**Usage example:**
+```dart
+await graph.dropPropertyIndex('idx_custom_title');
+```
+
+#### listPropertyIndexes()
+
+List created property indexes:
+
+```dart
+Future<List<PropertyIndexInfo>> listPropertyIndexes();
+```
+
+**Usage example:**
+```dart
+final indexes = await graph.listPropertyIndexes();
+for (final index in indexes) {
+  print('${index.name}: ${index.propertyKey} (${index.entityType})');
+}
+```
+
+#### hasPropertyIndex()
+
+Check if property has index:
+
+```dart
+Future<bool> hasPropertyIndex(
+  String propertyKey, {
+  IndexEntityType entityType = IndexEntityType.vertices,
+});
+```
+
+**Usage example:**
+```dart
+final hasIndex = await graph.hasPropertyIndex('name');
+if (hasIndex) {
+  print('Index exists on name property');
+}
+```
+
+### Practical Usage Examples
+
+#### Index Management
+
+```dart
+Future<void> manageIndexes(Graph graph) async {
+  // Check current indexes
+  final currentIndexes = await graph.listPropertyIndexes();
+  print('Current indexes: ${currentIndexes.length}');
+
+  // Create index if not exists
+  if (!await graph.hasPropertyIndex('name')) {
+    await graph.createPropertyIndex('name');
+    print('Created index on name property');
+  }
+
+  // Remove temporary indexes
+  for (final index in currentIndexes) {
+    if (index.propertyKey.startsWith('temp_')) {
+      await graph.dropPropertyIndex(index.name);
+      print('Removed temporary index ${index.name}');
+    }
+  }
+}
+```
+
+### Performance Considerations
+
+#### Benefits of Indexing
+- **Query Performance**: Faster searches on indexed properties
+- **Traversal Optimization**: Efficient filtering with `hasKey()`
+
+#### Costs of Indexing
+- **Storage**: Increased disk usage
+- **Update Performance**: Index maintenance cost
+- **Creation Time**: Time to create indexes on large data
+
+#### Recommendations
+1. **Frequently Accessed**: `name`, `id`, `type` properties
+2. **System Properties**: Properties starting with `_s_`
+3. **Search Properties**: Properties used in searches
+4. **Filter Properties**: Properties used in `hasKey()` steps
+
+### Important Notes
+
+1. **User Responsibility**: Library provides functionality, users decide strategy
+2. **Naming**: Use clear, unique index names
+3. **Regular Review**: Revisit strategy as application grows
+4. **Test First**: Verify performance in test environment before production
+
+## Label Events and Callback Feature
+
+### Overview
+
+RinneGraph provides an event system to monitor graph data changes, particularly label additions/deletions. This allows application layers to implement label metadata management and real-time statistics updates.
+
+### Event Types
+
+#### LabelEventType (Label Event Types)
+
+```dart
+enum LabelEventType {
+  added,    // Label newly added
+  removed,  // Label removed
+  updated,  // Entity with label updated
+}
+```
+
+#### VertexLabelEvent (Vertex Label Event)
+
+```dart
+class VertexLabelEvent {
+  final int vertexId;           // Vertex ID
+  final String label;           // Changed label
+  final Set<String> allLabels;  // Current all labels
+  final LabelEventType eventType; // Event type
+  final String transactionId;  // Transaction ID
+  final DateTime timestamp;    // Event timestamp
+}
+```
+
+#### EdgeLabelEvent (Edge Label Event)
+
+```dart
+class EdgeLabelEvent {
+  final int edgeId;             // Edge ID
+  final String label;           // Changed label
+  final Set<String> allLabels;  // Current all labels
+  final LabelEventType eventType; // Event type
+  final String transactionId;  // Transaction ID
+  final DateTime timestamp;    // Event timestamp
+}
+```
+
+### Registering Event Listeners
+
+#### Basic Usage
+
+```dart
+final graph = await Graph.open('my_graph.db');
+
+// Monitor vertex label events
+graph.onVertexLabelEvent((event) {
+  print('Vertex ${event.vertexId} label "${event.label}" ${event.eventType}');
+  print('Current labels: ${event.allLabels}');
+});
+
+// Monitor edge label events
+graph.onEdgeLabelEvent((event) {
+  print('Edge ${event.edgeId} label "${event.label}" ${event.eventType}');
+});
+```
+
+#### Using Event Manager Directly
+
+```dart
+// For more detailed control
+graph.eventManager.addEventListener<VertexLabelEvent>((event) {
+  // Handle vertex label event
+});
+
+// Remove listener
+void myCallback(VertexLabelEvent event) {
+  // Handle
+}
+
+graph.eventManager.addEventListener<VertexLabelEvent>(myCallback);
+// Later: remove
+graph.eventManager.removeEventListener<VertexLabelEvent>(myCallback);
+```
+
+### Usage Examples
+
+#### Basic Event Monitoring
+
+```dart
+final graph = await Graph.open('my_graph.db');
+
+graph.onVertexLabelEvent((event) {
+  print('Vertex ${event.vertexId} label "${event.label}" ${event.eventType}');
+});
+
+graph.onEdgeLabelEvent((event) {
+  print('Edge ${event.edgeId} label "${event.label}" ${event.eventType}');
+});
+
+// Create vertex (fires events)
+await graph.transaction((txn) async {
+  await txn.createVertex(Vertex(
+    labels: {'person', 'user'},
+    properties: {'name': 'Alice'},
+  ));
+});
+```
+
+#### Application-level Usage
+
+```dart
+class LabelMetadataManager {
+  final Graph _graph;
+
+  LabelMetadataManager(this._graph) {
+    // Monitor label events for metadata management
+    _graph.onVertexLabelEvent((event) {
+      if (event.eventType == LabelEventType.added) {
+        _ensureLabelMetadataExists(event.label);
+      }
+    });
+  }
+
+  void _ensureLabelMetadataExists(String label) {
+    // Create label metadata if not exists
+    // Store in application database
+  }
+}
+```
+
+### Important Notes
+
+- Callback errors don't affect transactions
+- Recommend async execution for heavy processing
+- Remove listeners when no longer needed
+
+## Label Statistics Information
+
+### Overview
+
+RinneGraph provides basic label statistics (label usage counts) and detailed label analysis features.
+
+### Getting Basic Statistics
+
+```dart
+final graph = await Graph.open('my_graph.db');
+final stats = await graph.getStatistics();
+
+// Check vertex label statistics
+print('Vertex labels:');
+stats.vertexLabelCounts.forEach((label, count) {
+  print('  $label: $count');
+});
+
+// Check edge label statistics
+print('Edge labels:');
+stats.edgeLabelCounts.forEach((label, count) {
+  print('  $label: $count');
+});
+```
+
+### Detailed Label Analysis
+
+#### Using LabelAnalyzer
+
+```dart
+final analyzer = graph.labelAnalyzer;
+
+// Analyze label combinations
+final combinations = await analyzer.analyzeLabelCombinations();
+print('Label combinations: $combinations');
+
+// Analyze label relationships
+final relationships = await analyzer.analyzeLabelRelationships();
+print('Label relationships: $relationships');
+
+// Find popular labels
+final popularLabels = await analyzer.findPopularLabels();
+print('Popular labels: $popularLabels');
+
+// Find underutilized labels
+final underutilized = await analyzer.findUnderutilizedLabels();
+print('Underutilized labels: $underutilized');
+
+// Generate comprehensive report
+final report = await analyzer.generateReport();
+print('Analysis report: ${report.getSummary()}');
+```
+
+### Available Analysis Features
+
+- **Label Combination Analysis**: Analyze patterns of multiple labels on entities
+- **Label Relationship Analysis**: Analyze relationships between labels via edges
+- **Label Distribution Analysis**: Analyze usage frequency and distribution
+- **Label Network Construction**: Build relationship network between labels
+
+### Important Notes
+
+- Detailed analysis may impact performance on large datasets
+- Consider caching results when appropriate
+- Basic statistics available efficiently via `graph.getStatistics()`
+
+## Command-line Tool
+
+RinneGraph includes a comprehensive command-line tool `rinne` for database creation, data import/export, statistics display, and query execution.
+
+### Installation and Basic Usage
+
+```bash
+# Run tool
+rinne <command> [options]
+
+# Show help
+rinne --help
+
+# Show version
+rinne --version
+
+# Command-specific help
+rinne <command> --help
+```
+
+### File Path Handling
+
+The tool supports both relative and absolute paths:
+
+- **Relative Path**: Resolved relative to current working directory
+- **Absolute Path**: Used as-is
+- **Hidden Directories**: Files created directly in specified path, not in hidden directories like `.dart_tool/sqflite_common_ffi/databases/`
+
+```bash
+# Relative path (recommended)
+rinne create --output my_graph.db
+rinne info --database ./data/graph.db
+
+# Absolute path
+rinne create --output /path/to/my_graph.db
+rinne info --database /absolute/path/to/graph.db
+```
+
+### Available Commands
+
+#### 1. create - Create Database
+
+Create a new RinneGraph database. The created database is empty with initialized table structure.
+
+```bash
+# Basic creation
+rinne create --output graph.db
+
+# With description
+rinne create --output graph.db --description "Project graph DB"
+
+# Overwrite existing
+rinne create --output graph.db --overwrite
+
+# With verbose logging
+rinne create --output graph.db --verbose
+```
+
+#### 2. info - Database Information
+
+Display database information and statistics.
+
+```bash
+# Basic info
+rinne info --database graph.db
+
+# Show labels
+rinne info --database graph.db --labels
+
+# Show properties
+rinne info --database graph.db --properties
+
+# Detailed info
+rinne info --database graph.db --detailed
+```
+
+#### 3. query - Execute Query
+
+Execute traversal queries on database.
+
+```bash
+# Count vertices
+rinne query --database graph.db --traversal "g.V().count()"
+
+# Get specific vertices
+rinne query --database graph.db --traversal "g.V().hasLabel(['person'])"
+
+# Complex query
+rinne query --database graph.db --traversal "g.V().out(['knows']).values(['name'])"
+```
+
+#### 4. import - Import Data
+
+Import data from various formats.
+
+```bash
+# Import from JSON
+rinne import json --input data.json --database graph.db
+
+# Import from CSV
+rinne import csv --input data.csv --database graph.db
+
+# Import with verbose output
+rinne import json --input data.json --database graph.db --verbose
+```
+
+#### 5. export - Export Data
+
+Export database to various formats.
+
+```bash
+# Export to JSON
+rinne export json --database graph.db --output export.json
+
+# Export to CSV
+rinne export csv --database graph.db --output export.csv
+
+# Export with options
+rinne export json --database graph.db --output export.json --pretty
+```
+
+### Practical Usage Scenarios
+
+#### Scenario 1: Starting New Project
+
+```bash
+# 1. Create new database
+rinne create --output project_graph.db --description "New project graph DB"
+
+# 2. Import initial data
+rinne import json --input initial_data.json --database project_graph.db --verbose
+
+# 3. Check database status
+rinne info --database project_graph.db --labels
+
+# 4. Verify data with query
+rinne query --database project_graph.db --traversal "g.V().count()"
+```
+
+#### Scenario 2: Bulk CSV Import
+
+```bash
+# 1. Create empty database
+rinne create --output csv_import.db --description "CSV bulk import"
+
+# 2. Import CSV data
+rinne import csv --input nodes.csv --database csv_import.db --verbose
+
+# 3. Verify import
+rinne info --database csv_import.db --detailed
+
+# 4. Export to JSON for backup
+rinne export json --database csv_import.db --output backup.json
+```
+
+### Configuration
+
+Configuration can be set via command-line arguments, configuration files, or environment variables.
+
+**Configuration Priority**:
+1. Command-line arguments (highest priority)
+2. Specified configuration file (`--config`)
+3. Default configuration file (`~/.rinne/config.yaml`)
+4. Built-in defaults
+
+### Important Notes
+
+- File paths are resolved at command execution time
+- Relative paths use current working directory
+- All files created in specified location, not hidden directories
+- Verbose mode provides detailed operation information
