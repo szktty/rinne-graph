@@ -403,6 +403,21 @@ final noAge = await g.V().hasNot('age').toList();
 final gmailUsers = await g.V().hasKeyContains('email', 'gmail').toList();
 ```
 
+**hasAnyKeyContains(String value)**
+- Filter by any string property value containing the search string (searches all properties)
+- Parameters: Search string
+- Output: Same type as input
+- Note: Only string-type properties are searched; numeric and other types are excluded
+- Note: If multiple properties on the same element match, the element is returned only once
+
+```dart
+// Returns vertices where any string property contains 'alice'
+final results = await g.V().hasAnyKeyContains('alice').toList();
+
+// Can be combined with other steps
+final people = await g.V().hasLabel(['person']).hasAnyKeyContains('alice').toList();
+```
+
 **hasKeyStartsWith(String key, String value)**
 - Filter by property value starting with string
 - Parameters: Property key and search string
@@ -1025,6 +1040,7 @@ await graph.transaction((txn) async {
 - `V()`, `E()`, `hasLabel()`, `hasKey()`, `out()`, `in_()`, `both()`
 - `outE()`, `inE()`, `bothE()`, `outV()`, `inV()`, `bothV()`
 - `values()`, `valueMap()`, `count()`, `dedup()`
+- `hasKeyContains()`, `hasAnyKeyContains()`, `hasKeyStartsWith()`, `hasKeyEndsWith()`, `hasKeyMatches()`
 
 **Post-processing Steps (Lower Performance)**:
 - `filter()`, `map()`

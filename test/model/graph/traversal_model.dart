@@ -83,6 +83,11 @@ class TraversalModel extends TraversalBase {
   }
 
   @override
+  Traversal hasAnyKeyContains(String value) {
+    return withNewStep(HasAnyKeyContainsStep(value));
+  }
+
+  @override
   Traversal hasKeyMatches(String key, String pattern) {
     return withNewStep(HasKeyMatchesStep(key, pattern));
   }

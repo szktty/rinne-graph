@@ -227,6 +227,7 @@ final class SqlTraversalImpl extends TraversalBase implements SqlTraversal {
     bool distinct = false,
     List<String>? joins,
     String? where,
+    String? groupBy,
     String? orderBy,
     int? limit,
   }) {
@@ -253,6 +254,7 @@ final class SqlTraversalImpl extends TraversalBase implements SqlTraversal {
       distinct: distinct,
       joins: joins,
       where: where,
+      groupBy: groupBy,
       orderBy: orderBy,
       limit: limit,
     );
@@ -644,6 +646,11 @@ final class SqlTraversalImpl extends TraversalBase implements SqlTraversal {
   @override
   Traversal hasKeyContains(String key, String value) {
     return withNewStep(HasKeyContainsStep(key, value));
+  }
+
+  @override
+  Traversal hasAnyKeyContains(String value) {
+    return withNewStep(HasAnyKeyContainsStep(value));
   }
 
   @override

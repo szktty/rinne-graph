@@ -34,6 +34,7 @@ abstract class SqlTraversal implements TraversalBase {
     bool distinct = false,
     List<String>? joins,
     String? where,
+    String? groupBy,
     String? orderBy,
     int? limit,
   });

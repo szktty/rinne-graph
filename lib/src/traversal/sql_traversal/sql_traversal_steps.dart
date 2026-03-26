@@ -180,6 +180,34 @@ class HasKeyContainsStep extends TraversalStepHasKeyContainsBase
   }
 }
 
+class HasAnyKeyContainsStep extends TraversalStepHasAnyKeyContainsBase
+    implements SqlTraversalStep {
+  HasAnyKeyContainsStep(this.value);
+
+  final String value;
+
+  @override
+  void apply(SqlTraversal t) {
+    final typePlaceholder = t.addParameter(DatabaseValueType.string.id);
+    final valuePlaceholder = t.addParameter('%$value%');
+
+    final condition = '${t.propertyTable}.type = $typePlaceholder AND '
+        '${t.propertyTable}.value LIKE $valuePlaceholder';
+
+    t.addCte(
+      cteName: 'hasAnyKeyContains',
+      id: '${t.propertyTable}.${t.elementIdColumn}',
+      type: t.elementTypeColumn,
+      value: '${t.lastCteName}.id',
+      joins: [
+        '${t.propertyTable} ON ${t.lastCteName}.id = ${t.propertyTable}.${t.elementIdColumn}',
+      ],
+      where: condition,
+      groupBy: '${t.propertyTable}.${t.elementIdColumn}',
+    );
+  }
+}
+
 class HasKeyStartsWithStep extends TraversalStepHasKeyStartsWithBase
     implements SqlTraversalStep {
   HasKeyStartsWithStep(this.key, this.value);

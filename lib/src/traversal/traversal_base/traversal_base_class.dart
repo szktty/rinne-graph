@@ -308,6 +308,20 @@ abstract class TraversalStepHasKeyContainsBase extends TraversalStepBase {
   bool get allowsStartStep => false;
 }
 
+abstract class TraversalStepHasAnyKeyContainsBase extends TraversalStepBase {
+  @override
+  String get name => 'hasAnyKeyContains';
+
+  @override
+  ElementType get requiredInputType => ElementType.both;
+
+  @override
+  ElementType get outputType => inputType;
+
+  @override
+  bool get allowsStartStep => false;
+}
+
 abstract class TraversalStepHasKeyStartsWithBase extends TraversalStepBase {
   @override
   String get name => 'hasStartsWith';

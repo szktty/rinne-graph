@@ -119,6 +119,31 @@ class HasKeyContainsStep extends TraversalStepHasKeyContainsBase
   }
 }
 
+class HasAnyKeyContainsStep extends TraversalStepHasAnyKeyContainsBase
+    implements TraversalStepModel {
+  HasAnyKeyContainsStep(this.value);
+
+  final String value;
+
+  @override
+  Iterable<TraversalPath> apply(
+    TraversalModel t,
+    Iterable<TraversalPath> targets,
+  ) {
+    return targets.wherePath<ElementId>((id) {
+      final e = t.graph.getElementByElementId(id)!;
+      return e.properties.entries.any((entry) {
+        return e.getPropertyType(entry.key) == DatabaseValueType.string &&
+            e
+                .getProperty(entry.key)
+                .toString()
+                .toLowerCase()
+                .contains(value.toLowerCase());
+      });
+    });
+  }
+}
+
 class HasKeyMatchesStep extends TraversalStepHasKeyMatchesBase
     implements TraversalStepModel {
   HasKeyMatchesStep(this.key, this.pattern);

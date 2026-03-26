@@ -33,6 +33,8 @@ abstract class Traversal {
   // Extended search functionality
   Traversal hasKeyContains(String key, String value);
 
+  Traversal hasAnyKeyContains(String value);
+
   Traversal hasKeyStartsWith(String key, String value);
 
   Traversal hasKeyEndsWith(String key, String value);

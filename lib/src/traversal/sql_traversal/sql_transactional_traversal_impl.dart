@@ -327,6 +327,12 @@ final class SqlTransactionalTraversalImpl implements Traversal {
   }
 
   @override
+  Traversal hasAnyKeyContains(String value) {
+    _delegate.hasAnyKeyContains(value);
+    return this;
+  }
+
+  @override
   Traversal hasKeyStartsWith(String key, String value) {
     _delegate.hasKeyStartsWith(key, value);
     return this;
