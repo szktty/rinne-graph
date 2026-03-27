@@ -33,7 +33,7 @@ abstract class Traversal {
   // Extended search functionality
   Traversal hasKeyContains(String key, String value);
 
-  Traversal hasAnyKeyContains(String value);
+  Traversal hasAnyKeyContains(String value, {Set<String> excludeKeys = const {}});
 
   Traversal hasKeyStartsWith(String key, String value);
 

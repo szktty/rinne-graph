@@ -108,5 +108,44 @@ void main() {
           await graph.traversal().V().hasAnyKeyContains('Alice').toList();
       expect(results, isEmpty);
     });
+
+    test('excludeKeys skips specified property keys', () async {
+      await graph.transaction((txn) async {
+        await txn.createVertex(Vertex(
+            labels: {'person'},
+            properties: {'name': 'Alice', 'app_id': 'uuid-alice-001'}));
+        await txn.createVertex(Vertex(
+            labels: {'person'},
+            properties: {'name': 'Bob', 'app_id': 'uuid-alice-002'}));
+      });
+
+      // Without excludeKeys: both vertices match via app_id
+      final allResults =
+          await graph.traversal().V().hasAnyKeyContains('alice').toList();
+      expect(allResults, hasLength(2));
+
+      // With excludeKeys: only the vertex whose name contains 'alice' matches
+      final filteredResults = await graph
+          .traversal()
+          .V()
+          .hasAnyKeyContains('alice', excludeKeys: {'app_id'})
+          .toList();
+      expect(filteredResults, hasLength(1));
+    });
+
+    test('excludeKeys with empty set behaves like no excludeKeys', () async {
+      await graph.transaction((txn) async {
+        await txn.createVertex(Vertex(
+            labels: {'person'},
+            properties: {'name': 'Alice', 'email': 'alice@example.com'}));
+      });
+
+      final results = await graph
+          .traversal()
+          .V()
+          .hasAnyKeyContains('alice', excludeKeys: {})
+          .toList();
+      expect(results, hasLength(1));
+    });
   });
 }

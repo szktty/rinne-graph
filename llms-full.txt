@@ -403,9 +403,9 @@ final noAge = await g.V().hasNot('age').toList();
 final gmailUsers = await g.V().hasKeyContains('email', 'gmail').toList();
 ```
 
-**hasAnyKeyContains(String value)**
+**hasAnyKeyContains(String value, {Set<String> excludeKeys = const {}})**
 - Filter by any string property value containing the search string (searches all properties)
-- Parameters: Search string
+- Parameters: Search string; optional `excludeKeys` set of property keys to skip during search
 - Output: Same type as input
 - Note: Only string-type properties are searched; numeric and other types are excluded
 - Note: If multiple properties on the same element match, the element is returned only once
@@ -416,6 +416,9 @@ final results = await g.V().hasAnyKeyContains('alice').toList();
 
 // Can be combined with other steps
 final people = await g.V().hasLabel(['person']).hasAnyKeyContains('alice').toList();
+
+// Exclude specific keys (e.g. internal UUIDs) from the search
+final results = await g.V().hasAnyKeyContains('alice', excludeKeys: {'app_id'}).toList();
 ```
 
 **hasKeyStartsWith(String key, String value)**

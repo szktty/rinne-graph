@@ -327,8 +327,9 @@ final class SqlTransactionalTraversalImpl implements Traversal {
   }
 
   @override
-  Traversal hasAnyKeyContains(String value) {
-    _delegate.hasAnyKeyContains(value);
+  Traversal hasAnyKeyContains(String value,
+      {Set<String> excludeKeys = const {}}) {
+    _delegate.hasAnyKeyContains(value, excludeKeys: excludeKeys);
     return this;
   }
 

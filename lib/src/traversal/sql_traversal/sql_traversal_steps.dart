@@ -182,17 +182,24 @@ class HasKeyContainsStep extends TraversalStepHasKeyContainsBase
 
 class HasAnyKeyContainsStep extends TraversalStepHasAnyKeyContainsBase
     implements SqlTraversalStep {
-  HasAnyKeyContainsStep(this.value);
+  HasAnyKeyContainsStep(this.value, {this.excludeKeys = const {}});
 
   final String value;
+  final Set<String> excludeKeys;
 
   @override
   void apply(SqlTraversal t) {
     final typePlaceholder = t.addParameter(DatabaseValueType.string.id);
     final valuePlaceholder = t.addParameter('%$value%');
 
-    final condition = '${t.propertyTable}.type = $typePlaceholder AND '
+    var condition = '${t.propertyTable}.type = $typePlaceholder AND '
         '${t.propertyTable}.value LIKE $valuePlaceholder';
+
+    if (excludeKeys.isNotEmpty) {
+      final placeholders =
+          excludeKeys.map((k) => t.addParameter(k)).join(', ');
+      condition += ' AND ${t.propertyTable}.key NOT IN ($placeholders)';
+    }
 
     t.addCte(
       cteName: 'hasAnyKeyContains',

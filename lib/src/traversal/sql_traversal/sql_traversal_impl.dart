@@ -649,8 +649,9 @@ final class SqlTraversalImpl extends TraversalBase implements SqlTraversal {
   }
 
   @override
-  Traversal hasAnyKeyContains(String value) {
-    return withNewStep(HasAnyKeyContainsStep(value));
+  Traversal hasAnyKeyContains(String value,
+      {Set<String> excludeKeys = const {}}) {
+    return withNewStep(HasAnyKeyContainsStep(value, excludeKeys: excludeKeys));
   }
 
   @override
