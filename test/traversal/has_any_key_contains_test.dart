@@ -13,7 +13,7 @@ void main() {
       await graph.close();
     });
 
-    test('いずれかのプロパティに値が含まれる頂点を返す', () async {
+    test('returns vertices where any property contains the value', () async {
       await graph.transaction((txn) async {
         await txn.createVertex(Vertex(
             labels: {'person'},
@@ -26,20 +26,20 @@ void main() {
             properties: {'name': 'Charlie Brown', 'email': 'charlie@example.com'}));
       });
 
-      // name に "Alice" が含まれる → 1件
+      // "Alice" is in name → 1 result
       final results1 =
           await graph.traversal().V().hasAnyKeyContains('Alice').toList();
       expect(results1, hasLength(1));
 
-      // email に "example" が含まれる → 2件
+      // "example" is in email → 2 results
       final results2 =
           await graph.traversal().V().hasAnyKeyContains('example').toList();
       expect(results2, hasLength(2));
     });
 
-    test('複数のプロパティがマッチしても同一頂点は1件のみ返る', () async {
+    test('returns each vertex only once even when multiple properties match', () async {
       await graph.transaction((txn) async {
-        // name と email の両方に "alice" が含まれる
+        // both name and email contain "alice"
         await txn.createVertex(Vertex(
             labels: {'person'},
             properties: {
@@ -57,7 +57,7 @@ void main() {
       expect(results, hasLength(1));
     });
 
-    test('どのプロパティにも含まれない場合は空を返す', () async {
+    test('returns empty when no property contains the value', () async {
       await graph.transaction((txn) async {
         await txn.createVertex(Vertex(
             labels: {'person'},
@@ -69,21 +69,21 @@ void main() {
       expect(results, isEmpty);
     });
 
-    test('数値プロパティはマッチ対象にならない', () async {
+    test('does not match numeric properties', () async {
       await graph.transaction((txn) async {
-        // age は数値型なので LIKE の対象外
+        // age is numeric and excluded from LIKE matching
         await txn.createVertex(Vertex(
             labels: {'person'},
             properties: {'name': 'Alice', 'age': 30}));
       });
 
-      // "30" という文字列で検索しても数値プロパティにはマッチしない
+      // searching "30" should not match numeric properties
       final results =
           await graph.traversal().V().hasAnyKeyContains('30').toList();
       expect(results, isEmpty);
     });
 
-    test('hasLabel と組み合わせられる', () async {
+    test('can be combined with hasLabel', () async {
       await graph.transaction((txn) async {
         await txn.createVertex(Vertex(
             labels: {'person'},
@@ -93,7 +93,7 @@ void main() {
             properties: {'name': 'Alice Speaker', 'description': 'Smart speaker'}));
       });
 
-      // person ラベルかつ "alice" を含む → 1件
+      // person label and contains "alice" → 1 result
       final results = await graph
           .traversal()
           .V()
@@ -103,7 +103,7 @@ void main() {
       expect(results, hasLength(1));
     });
 
-    test('頂点が0件のグラフでは空を返す', () async {
+    test('returns empty for a graph with no vertices', () async {
       final results =
           await graph.traversal().V().hasAnyKeyContains('Alice').toList();
       expect(results, isEmpty);
