@@ -38,6 +38,8 @@ class DatabaseManager {
           onCreate: _onCreate,
         ),
       );
+      final walResult = await sqliteDb.rawQuery('PRAGMA journal_mode=WAL');
+      print('[DatabaseManager] journal_mode=WAL result: $walResult for $dbPath');
       final eventManager = GraphEventManagerImpl();
       return SQLiteDatabase(sqliteDb, eventManager);
     } catch (e) {
@@ -55,6 +57,9 @@ class DatabaseManager {
           onCreate: _onCreate,
         ),
       );
+      // Enable WAL mode for concurrent read/write access across connections.
+      final walResult = await sqliteDb.rawQuery('PRAGMA journal_mode=WAL');
+      print('[DatabaseManager] journal_mode=WAL result: $walResult for $absolutePath');
       final eventManager = GraphEventManagerImpl();
       return SQLiteDatabase(sqliteDb, eventManager);
     } catch (e) {
