@@ -1,54 +1,33 @@
+import 'package:logging/logging.dart';
 import 'package:rinne_graph/src/util/command_line_options.dart';
-import 'package:rinne_graph/src/util/debug_logger.dart';
 
-/// Initialize debug settings for test execution
-///
-/// Called during test execution to configure debug logging.
-/// Enables/disables debug logging based on command line options.
-///
-/// Usage example:
-/// ```dart
-/// void main() {
-///   initializeDebugSettings();
-///   // Test code
-/// }
-/// ```
 void initializeDebugSettings() {
-  // Get debug flag from environment variable
   final debugFromEnv = bool.tryParse(
         const String.fromEnvironment('RINNE_DEBUG', defaultValue: 'false'),
       ) ??
       false;
 
-  // Get debug flag from command line options
   final debugFromCli = commandLineOptions.isDebugEnabled;
 
-  // Enable debug logging if either is true
   if (debugFromEnv || debugFromCli) {
-    debugLogger.enable();
-  } else {
-    debugLogger.disable();
+    Logger.root.level = Level.ALL;
+    Logger.root.onRecord.listen((record) {
+      // ignore: avoid_print
+      print('[${record.level.name}] ${record.loggerName}: ${record.message}');
+    });
   }
 }
 
-/// Output debug log
-///
-/// [message] Message to output
 void debugLog(Object? message) {
-  debugLogger.log(message);
+  Logger('rinne_graph').fine(message?.toString());
 }
 
-/// Output SQL query debug log
-///
-/// [sql] SQL query
-/// [arguments] Query parameters
 void debugSql(String sql, [List<dynamic>? arguments]) {
-  debugLogger.logSql(sql, arguments);
+  Logger('rinne_graph.database').fine(
+    'SQL: $sql${arguments != null && arguments.isNotEmpty ? '\nArguments: $arguments' : ''}',
+  );
 }
 
-/// Output traversal debug log
-///
-/// [message] Message to output
 void debugTraversal(Object? message) {
-  debugLogger.logTraversal(message);
+  Logger('rinne_graph.traversal').fine(message?.toString());
 }

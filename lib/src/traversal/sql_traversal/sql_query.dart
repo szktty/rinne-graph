@@ -77,9 +77,7 @@ final class SqlResultSet {
   List<TraversalPath> getTraversalPaths() {
     final paths = <TraversalPath>[];
     for (final item in raw) {
-      //print('item: $item');
       TraversalPath path = TraversalPathImpl();
-      //print('item path: ${item['path']}, ${item['path'].runtimeType}');
       // path content is a JSON string
       // [[id, type, value], [id, type, value], ...]
       final stepInfos = (jsonDecode(item['path'] as String) as List<dynamic>)

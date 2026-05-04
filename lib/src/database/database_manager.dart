@@ -5,6 +5,7 @@ import 'package:rinne_graph/src/database/schema.dart';
 import 'package:rinne_graph/src/database/validation.dart';
 import 'package:rinne_graph/src/exception.dart';
 import 'package:rinne_graph/src/graph/event_manager.dart';
+import 'package:rinne_graph/src/util/logger.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
 
 class DatabaseManager {
@@ -43,6 +44,7 @@ class DatabaseManager {
       final eventManager = GraphEventManagerImpl();
       return SQLiteDatabase(sqliteDb, eventManager);
     } catch (e) {
+      databaseLogger.warning('Failed to open file database: $e');
       throw DatabaseException('Failed to open file database: $e');
     }
   }
@@ -61,6 +63,8 @@ class DatabaseManager {
       final eventManager = GraphEventManagerImpl();
       return SQLiteDatabase(sqliteDb, eventManager);
     } catch (e) {
+      databaseLogger
+          .warning('Failed to open file database with absolute path: $e');
       throw DatabaseException(
         'Failed to open file database with absolute path: $e',
       );
@@ -79,6 +83,7 @@ class DatabaseManager {
       final eventManager = GraphEventManagerImpl();
       return SQLiteDatabase(sqliteDb, eventManager);
     } catch (e) {
+      databaseLogger.warning('Failed to open in-memory database: $e');
       throw DatabaseException(
         'Failed to open in-memory database: $e',
       );

@@ -124,13 +124,11 @@ abstract class DatabaseValueHelper {
       // sqflite default is case sensitive
       final s1 = value1 as String;
       final s2 = value2 as String;
-      //print('compare string: $s1, $s2');
       return s1.compareTo(s2);
     } else if (type1 == DatabaseValueType.datetime &&
         type2 == DatabaseValueType.datetime) {
       final d1 = (value1 as DateTime).toUtc();
       final d2 = (value2 as DateTime).toUtc();
-      //print('compare datetime: $d1, $d2');
       return d1.compareTo(d2);
     } else if (type1 == DatabaseValueType.blob &&
         type2 == DatabaseValueType.blob) {

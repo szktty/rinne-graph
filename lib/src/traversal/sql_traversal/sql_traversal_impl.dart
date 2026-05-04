@@ -4,7 +4,7 @@ import 'package:rinne_graph/src/traversal/graph_loader.dart';
 import 'package:rinne_graph/src/traversal/sql_traversal/sql_traversal_intf.dart';
 import 'package:rinne_graph/src/traversal/sql_traversal/sql_traversal_steps.dart';
 import 'package:rinne_graph/src/traversal/traversal_internal.dart';
-import 'package:rinne_graph/src/util/debug_logger.dart';
+import 'package:rinne_graph/src/util/logger.dart';
 
 enum QuerySourceType {
   cte,
@@ -314,7 +314,7 @@ final class SqlTraversalImpl extends TraversalBase implements SqlTraversal {
   // TODO(szktty): Consider completely separating processing for traversal path and non-path cases.
   @override
   SqlQuerySet buildQuerySet() {
-    debugLogger.logTraversal('build steps: $steps');
+    traversalLogger.fine('build steps: $steps');
     for (final step in steps) {
       (step as SqlTraversalStep).apply(this);
     }

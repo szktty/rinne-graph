@@ -7,7 +7,7 @@ import 'package:rinne_graph/src/graph/events.dart';
 import 'package:rinne_graph/src/graph/graph_intf.dart';
 import 'package:rinne_graph/src/model/model.dart';
 import 'package:rinne_graph/src/traversal/sql_traversal/sql_transactional_traversal_impl.dart';
-import 'package:rinne_graph/src/util/debug_logger.dart';
+import 'package:rinne_graph/src/util/logger.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as sqflite;
 
 class SQLiteTransaction implements Transaction {
@@ -24,7 +24,7 @@ class SQLiteTransaction implements Transaction {
     String sql, [
     List<dynamic>? arguments,
   ]) {
-    debugLogger.logSql(sql, arguments);
+    databaseLogger.fine('SQL: $sql${arguments != null && arguments.isNotEmpty ? '\nArguments: $arguments' : ''}');
     return _txn.rawQuery(sql, arguments);
   }
 
@@ -33,7 +33,7 @@ class SQLiteTransaction implements Transaction {
     String sql, [
     List<dynamic>? arguments,
   ]) async {
-    debugLogger.logSql(sql, arguments);
+    databaseLogger.fine('SQL: $sql${arguments != null && arguments.isNotEmpty ? '\nArguments: $arguments' : ''}');
     await _txn.execute(sql, arguments);
   }
 

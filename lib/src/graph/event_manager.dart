@@ -1,5 +1,5 @@
 import 'package:rinne_graph/src/graph/events.dart';
-import 'package:rinne_graph/src/util/debug_logger.dart';
+import 'package:rinne_graph/src/util/logger.dart';
 
 /// Graph event callback function type
 typedef GraphEventCallback<T extends GraphEvent> = void Function(T event);
@@ -62,9 +62,7 @@ class GraphEventManagerImpl implements GraphEventManager {
         // ignore: avoid_dynamic_calls
         callback(event);
       } on Exception catch (e, stackTrace) {
-        // Only log errors, don't stop transaction
-        debugLogger.logWithCategory('EVENT_ERROR', 'Event callback error: $e');
-        debugLogger.logWithCategory('EVENT_ERROR', 'Stack trace: $stackTrace');
+        databaseLogger.warning('Event callback error: $e', e, stackTrace);
       }
     }
   }
