@@ -28,6 +28,7 @@ class DatabaseManager {
     }
   }
 
+  /// Open database file with relative path
   Future<Database> openFile(String path) async {
     try {
       final dbPath = p.join(await getDatabasesPath(), path);
@@ -38,6 +39,7 @@ class DatabaseManager {
           onCreate: _onCreate,
         ),
       );
+      await _enableWal(sqliteDb);
       final eventManager = GraphEventManagerImpl();
       return SQLiteDatabase(sqliteDb, eventManager);
     } catch (e) {
@@ -55,11 +57,13 @@ class DatabaseManager {
           onCreate: _onCreate,
         ),
       );
+      await _enableWal(sqliteDb);
       final eventManager = GraphEventManagerImpl();
       return SQLiteDatabase(sqliteDb, eventManager);
     } catch (e) {
       throw DatabaseException(
-          'Failed to open file database with absolute path: $e');
+        'Failed to open file database with absolute path: $e',
+      );
     }
   }
 
@@ -78,6 +82,13 @@ class DatabaseManager {
       throw DatabaseException(
         'Failed to open in-memory database: $e',
       );
+    }
+  }
+
+  Future<void> _enableWal(ffi.Database db) async {
+    final result = await db.rawQuery('PRAGMA journal_mode=WAL');
+    if (result.isEmpty || result.first['journal_mode'] != 'wal') {
+      throw DatabaseException('Failed to enable WAL mode: $result');
     }
   }
 
